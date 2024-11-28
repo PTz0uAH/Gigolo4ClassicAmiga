@@ -66,3 +66,5 @@ to be continued..
 with kind regards,
 
 PTz(Peter Slootbeek)uAH
+
+p.s. artwork by "Brother G." & released on Thanksgiving Day 2024 dedicated to the Commodore Amiga usergroup @FB
