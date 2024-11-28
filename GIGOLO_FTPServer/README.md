@@ -47,7 +47,7 @@ mandatory parts used to create the 1st working proof-of-concept:
 - a modified SD2MicroSD adapter as cardreader
 - various wires
 - see the sources to find the connections
-- no schedual available..
+- no schematics available yet..
 
 ![alt text](./Gigolo4ClassicAmiga.jpg?raw=true)
 
