@@ -49,6 +49,8 @@ mandatory parts used to create the 1st working proof-of-concept:
 - see the sources to find the connections
 - no schedual available..
 
+![alt text](./Gigolo4ClassicAmiga.jpg?raw=true)
+
 "luxury" parts used to showcase a functional product prototype:
 - An empty Commodore Amiga 600 case
 - 1 Raspberry Pi 4 (inside) with monitor and/or Android13 tablet (outside) with suitable Amiga emulator
