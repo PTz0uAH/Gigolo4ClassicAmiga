@@ -2,7 +2,7 @@ Experimental ESP32 Gigolo_FTPServer with MEGA2560 Amiga Floppy grabbing handler 
 
 intro: A couple of years ago I got my hands on an old floppy drive and applied a hw modification
  to use it as replacement Amiga FloppyDisk-drive in case of emergency.. At that time I did not know about
- the AmigaFloppyDriveReader project but that surely would have been a much easier way to work with..
+ the "ArduinoFloppyDiskReader" project but that surely would have been a much easier way to work with..
  After I learned about that great project renamed to "DrawBridge" by the author I thought it would be convenient
  to create a similar interface to Mega2560 instead of MiniPro/Nano.. this time using the Amigafied Floppy Drive..
  That was not an easy path but after a lot of experimenting I had a working prototype to build into an A600
