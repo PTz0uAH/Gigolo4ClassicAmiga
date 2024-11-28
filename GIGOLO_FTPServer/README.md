@@ -10,7 +10,7 @@ intro: A couple of years ago I got my hands on an old floppy drive and applied a
  back in the day only with more versatile options.. at that time I wanted to integrate a grabber without
  the need for a PC so then the ESP32 came to the rescue.. with its powerfull 32bit CPU.. so here it is..
  a working proof of concept for anyone to play with.. albeit using quite a bunch of dirty hacks to get things
- done my way..feel free to improve it so we can make it better even when on a tight budget..
+ done my way..feel free to improve it so we can make it better even on a tight budget using improvised parts..
 
 summary: Hard & Software project to use your ESP32 as SD-Card Reader/Writer together with MEGA2560 Floppy grabber,
  all controlled from DOpus5.. create custom DOpus button docks and remote control the Server..
@@ -27,7 +27,7 @@ modified by nailbuster for ESP8266/ESP32. (https://github.com/nailbuster/esp8266
 
 modified by Daniel Plasa (https://github.com/dplasa/FTPClientServer)
 
-current modified experimental version, prototyping and Gigolo4ClassicAmiga project development by Peter Slootbeek
+current modified experimental version, prototyping & Gigolo4ClassicAmiga project development by Peter Slootbeek
 
 limitations, highlights and extra features:
 - only supports real Amiga Floppy Drive or converted PC Floppy Drive on the MEGA2560 side
@@ -38,7 +38,26 @@ limitations, highlights and extra features:
 - support for Amiga case std. LEDs
 - support for Amiga case custom Potmeter
 
-Attention: for use with Classic Amiga flavoured computers/emulators only!
+mandatory parts used to create the 1st working proof-of-concept:
+- Amiga floppy-drive or converted PC floppy-drive + powersupply 5v/1A
+- ESP32 WROOM devkit
+- 5v to 3.3v level-converter
+- MEGA2560
+- a couple of prototype boards
+- a modified SD2MicroSD adapter as cardreader
+- various wires
+- see the sources to find the connections
+- no schedual available..
+
+"luxury" parts used to showcase a functional product prototype:
+- An empty Commodore Amiga 600 case
+- 1 Raspberry Pi 4 (inside) with monitor and/or Android13 tablet (outside) with suitable Amiga emulator
+- and more..
+
+note: the potmeter used is standard, the final one also has a powerswitch so twisting the knob will turn "her" on..
+
+"G4CA" is intended to be used with Classic Amiga flavoured computers/emulators only but might work after some
+machine specific alterations with other "oldskool" platforms.. but that is up to you IYKWIM!
 
 to be continued..
 
