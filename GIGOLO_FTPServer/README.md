@@ -1,4 +1,4 @@
-Experimental ESP32 Gigolo_FTPServer with MEGA2560 Amiga Floppy grabbing handler and more..
+Gigolo4ClassicAmiga: Experimental ESP32 Gigolo_FTPServer with MEGA2560 Amiga Floppy grabbing handler and more..
 
 intro: A couple of years ago I got my hands on an old floppy drive and applied a hw modification
  to use it as replacement Amiga FloppyDisk-drive in case of emergency.. At that time I did not know about
@@ -27,7 +27,7 @@ modified by nailbuster for ESP8266/ESP32. (https://github.com/nailbuster/esp8266
 
 modified by Daniel Plasa (https://github.com/dplasa/FTPClientServer)
 
-final modifications by Peter Slootbeek
+current modified experimental version, prototyping and Gigolo4ClassicAmiga project development by Peter Slootbeek
 
 limitations, highlights and extra features:
 - only supports real Amiga Floppy Drive or converted PC Floppy Drive on the MEGA2560 side
@@ -44,4 +44,4 @@ to be continued..
 
 with kind regards,
 
-PTz()uAH
+PTz(Peter Slootbeek)uAH
