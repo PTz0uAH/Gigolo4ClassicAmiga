@@ -36,9 +36,17 @@
  * PIN  49,48,47,46,45,44,43,42
  */
 //-----------------------------------------------------------------------------------------------------
-const String PROG_ID = "Amiga FloppyDisk Controller (Arduino Mega 2560)\n";
+const String PROG_ID = "AmigaFloppyDrive Controller (Arduino Mega 2560)\n";
 //-----------------------------------------------------------------------------------------------------
-// mostly just stripping AmigaFDD to get it working with HoodLoader2 (2MBaud)
+// d.d. 20241220 now local command handling added
+// LOCAL: "DISK2ADF" works and saves .ADF file to /adf subdir in 59..65 seconds
+// LOCAL: "00".."79" works as command and moves the head to the desired track number
+// LOCAL: "=" works and saves a single track to /trk subdir as .ADF file
+// TODO IDEAS:
+// - skip bad tracks to save as much data as possible
+// - repair function if encounter bad track
+//
+// early concept ideas: mostly just stripping AmigaFDD to get it working with HoodLoader2 (2MBaud)
 // preserve core routines because we use a REAL (converted SFD-321B) Amiga drive
 // emulating Paula & feeding Paula with ADF  should be possible
 // goals:
@@ -50,7 +58,7 @@ const String PROG_ID = "Amiga FloppyDisk Controller (Arduino Mega 2560)\n";
 // 
 // "let's see where the ship strands"
 //-----------------------------------------------------------------------------------------------------
-#define BAUDRATE_UART0 2000000                 // The baudrate that we want to communicate over (2M)
+#define BAUDRATE_UART0 115200 //2000000                 // The baudrate that we want to communicate over (2M)
 #define BAUDRATE_UART1 2000000                 // The baudrate that we want to communicate over (2M)
 #define BAUD_PRESCALLER_NORMAL_MODE0      (((F_CPU / (BAUDRATE_UART0 * 16UL))) - 1)
 #define BAUD_PRESCALLER_DOUBLESPEED_MODE0 (((F_CPU / (BAUDRATE_UART0 * 8UL))) - 1)
@@ -159,12 +167,14 @@ const String PROG_ID = "Amiga FloppyDisk Controller (Arduino Mega 2560)\n";
 //-----------------------------------------------------------------------------------------------------
 #define PIN_POTMETER_1     A8   //ANALOG 8
 //-----------------------------------------------------------------------------------------------------
+bool DEBUG = false;
 // These are read from the EEPROM so do not modifiy them
 bool advancedControllerMode     = false;   // DO NOT CHANGE THIS, its automatically detected. If you can't connect pin12 to GND because you want to use the ISP headers, then see https://amiga.robsmithdev.co.uk/isp
 bool drawbridgePlusMode         = false;   // DO NOT CHANGE THIS, its automatically set via EEPROM.  See the Windows Tool for more information
 bool disableDensityDetection    = false;   // DO NOT CHANGE THIS, its automatically set vis EEPROM.  See the Windows Tool for more information
 bool slowerDiskSeeking          = false;   // DO NOT CHANGE THIS, its automatically set vis EEPROM.  See the Windows Tool for more information
 bool alwaysIndexAlignWrites     = false;   // DO NOT CHANGE THIS, its automatically set vis EEPROM.  See the Windows Tool for more information
+bool DRIVE_BUSY = false;
 //ADVANCED
 // Detect advanced mode
 //-----------------------------------------------------------------------------------------------------
@@ -224,17 +234,17 @@ bool disktypeHD = 0;
 bool inWriteMode = 0;
 //-----------------------------------------------------------------------------------------------------
 int SETUP_COUNTER = 0;
-int data_pulse_count = 0;
-int DATA_PULSE = 1;
-int PREV_DATA_PULSE = 0;
-bool HAS_DATA_PULSE = false;
+//int data_pulse_count = 0;
+//int DATA_PULSE = 1;
+//int PREV_DATA_PULSE = 0;
+//bool HAS_DATA_PULSE = false;
 //-----------------------------------------------------------------------------------------------------
-int index_pulse_count = 0;
-int INDEX_PULSE = 0;
-int PREV_INDEX_PULSE = -1;
-bool HAS_INDEX_PULSE = false;
+//int index_pulse_count = 0;
+//int INDEX_PULSE = 0;
+//int PREV_INDEX_PULSE = -1;
+//bool HAS_INDEX_PULSE = false;
 //-----------------------------------------------------------------------------------------------------
-bool IS_DISK_AVAILABLE = false;
+bool DISK_NOT_REMOVED = false;
 bool DISK_READY = false;
 //-----------------------------------------------------------------------------------------------------
 int potmeter1Value = 0;  // variable to store the value coming from the sensor
@@ -250,8 +260,8 @@ String MOTD = "";
 String statusMessage = "";
 String prevstatusMessage = "";
 String inputString = "";         // a String to hold incoming data
-String inString = "";         // a String to hold incoming data
-bool stringComplete = false;  // whether the string is complete
+String msgString = "";         // a String to hold any message data
+//bool stringComplete = false;  // whether the string is complete
 //String input1String = "";         // a String to hold incoming data from serialport 1
 //bool string1Complete = false;  // whether the string is complete from serialport 1
 String ADOS_CMD = "";
@@ -270,7 +280,7 @@ unsigned char SERIAL1_BUFFER[SERIAL1_BUFFER_SIZE];
 const char* DISK_READ_ONLY = "DISK_READ_ONLY";
 const char* DISK_READ_WRITE = "DISK_READ_WRITE";
 const char*  ERROR_GOTO_TRACK_ZERO = "ECHO ERROR_GOTO_TRACK_0\n";
-const char*  ABORT_CURRENT_OPERATION = "ECHO ABORT CURRENT OPERATION (TOO MANY RETRIES FAILED!)\n";
+const char*  ABORT_CURRENT_OPERATION = "ABORT CURRENT OPERATION (TOO MANY RETRIES FAILED!)\n";
 // Read the command from the PC
 byte command='0';
 //-----------------------------------------------------------------------------------------------------
@@ -478,6 +488,7 @@ void sendTickAsuSec(unsigned int i) {
 // goToTrack0() - Rewinds the head back to Track 0
 //-----------------------------------------------------------------------------------------------------
 bool goToTrack0() {
+    //sendString("RESET_TO_TRACK_ZERO\n");
     digitalWrite(FD_MOTOR_DIRECTION, MOTOR_TRACK_DECREASE);   // Set the direction to go backwards
     int counter=0;
     while (digitalRead(FD_TRACK_0) != LOW) {
@@ -491,7 +502,8 @@ bool goToTrack0() {
        }
     }
     currentTrack = 0;    // Reset the track number
-    return true;
+//    sendString1("RESET_TO_TRACK_ZERO\n");
+   return true;
 }
 //-----------------------------------------------------------------------------------------------------
 // ADOS_CMD from ESP32 Goto to a specific track.
@@ -499,6 +511,7 @@ bool goToTrack0() {
 //-----------------------------------------------------------------------------------------------------
 //bool gotoTrackXX(const String &newtrack, bool reportDiskChange) {
 bool gotoTrackXX(const String &newtrack) {
+    sendString(String("TRACK_"+newtrack+"\n").c_str());
     int track = newtrack.toInt();
   //sendString1((String(track)+("_int\n")).c_str());
     byte flags = 1;  // default to normal speed
@@ -613,6 +626,8 @@ void initSerialInterfaces() {
         OCR2B = pulseStart;                                                                            \
         TIFR2 |= bit(TOV2);        
 //-----------------------------------------------------------------------------------------------------
+// void writePrecompTrack()
+//-----------------------------------------------------------------------------------------------------
 void writePrecompTrack() {
     // Check if its write protected.  You can only do this after the write gate has been pulled low
     if (digitalRead(FD_WRITE_PROTECT) == LOW) {
@@ -718,7 +733,7 @@ void writePrecompTrack() {
     PIN_CTS_PORT &= (~PIN_CTS_MASK);     
 }
 //-----------------------------------------------------------------------------------------------------
-//   ADF2DISK - record tracks to floppy
+// void ADF2DISK() - record tracks to floppy
 //-----------------------------------------------------------------------------------------------------
 void ADF2DISK() {
  FLOPPY_SIDE=HIGH;
@@ -870,6 +885,7 @@ void ADF2DISK() {
  }
 }
 //-----------------------------------------------------------------------------------------------------
+//void DECODE_TRACK_MEGA_2560()
 //-----------------------------------------------------------------------------------------------------
 void DECODE_TRACK_MEGA_2560() {
 // FLOPPY_SIDE=LOW;
@@ -964,6 +980,8 @@ void DECODE_TRACK_MEGA_2560() {
    }
  }
 }
+//-----------------------------------------------------------------------------------------------------
+// void DISK2ADF() GRAB WHOLE FLOPPYDISK / 80 Tracks and save to ADF 
 //-----------------------------------------------------------------------------------------------------
 void DISK2ADF() {
 //-----------------------------------------------------------------------------------------------------
@@ -1139,10 +1157,10 @@ bool Polling() {
    digitalWrite(FDD_LED,HIGH);
 //   digitalWrite(FD_DRV_SELECT_0,LOW);
    digitalWrite(FD_MOTOR_ENABLE,LOW);
-   if (currentTrack!=0){goToTrack0();}
+   if (currentTrack==-1){goToTrack0();}
    digitalWrite(FD_MOTOR_DIRECTION, MOTOR_TRACK_INCREASE);   // Set the direction to go forward
    stepDirectionHead();   // move the head 1 step ahead
-   IS_DISK_AVAILABLE=digitalRead(FD_DISK_REMOVED);
+   DISK_NOT_REMOVED=digitalRead(FD_DISK_REMOVED);
    digitalWrite(FD_MOTOR_DIRECTION, MOTOR_TRACK_DECREASE);   // Set the direction to go backwards
    stepDirectionHead();   // move the head 1 step back
    digitalWrite(FD_MOTOR_ENABLE,HIGH);
@@ -1217,19 +1235,26 @@ void loop() {
  PIN_CTS_PORT &= (~PIN_CTS_MASK);            // Allow data incoming
  PIN_WRITE_GATE_PORT|=PIN_WRITE_GATE_MASK;   // always turn writing off    
 //-----------------------------------------------------------------------------------------------------
-HWserialEvent1(); //Read SERIAL 1
+// do not send commands from both ports at the same time!
+HWserialEvent1(); //Read SERIAL 1 for ADOS_CMD
+if (ADOS_CMD=="") HWserialEvent0(); //if ADOS_CMD is not set then read SERIAL 0 (commands from LOCAL)
  if (actionESP32==do_cmd){
+  if (DEBUG==true) sendString(String("DEBUG_MEGA2560: CMD="+ADOS_CMD+" ARG="+ADOS_ARGS+"\n").c_str());
 //-----------------------------------------------------------------------------------------------------
 // ADOS - COMMANDS
 //-----------------------------------------------------------------------------------------------------
 // ? - SHOW VERSION                                1
 //--------------------------------------------------
 if (ADOS_CMD == "?")  { //    writeByteToUART1('1');  // Success
+  if (ADOS_ARGS="LOCAL"){
+    sendString( String("AmigaFloppyDrive Controller v1.8\n").c_str() );
+  }else{
    writeByteToUART1('V');  // Followed
     writeByteToUART1('1');  // By
      writeByteToUART1(advancedControllerMode ? ',' : '.');  // Advanced controller version
       writeByteToUART1('8');  // Number    
   }
+}
 //--------------------------------------------------
 // #xx - GOTO TRACK xx    00/79                    3
 //--------------------------------------------------
@@ -1238,13 +1263,15 @@ else if (ADOS_CMD[0]=='#'){
     ADOS_ARGS=String(ADOS_CMD[1])+String(ADOS_CMD[2]);
     if (driveEnabled==true) {
      sendString1("DRIVE_BUSY"); //to prevent the timeout on ESP32
-     smalldelay(20);//test
+     DRIVE_BUSY=true;
+     smalldelay(10);//test
      if (gotoTrackXX(ADOS_ARGS)==true){
       sendString1(String("ECHO CURRENT_TRACK:#"+String((currentTrack<10) ? "0" : "")+String(currentTrack)+"\n").c_str());//writeByteToUART1('1');
      }
      else{
       sendString1(String("ECHO ERROR_SETTING_TRACK_TO:#"+ADOS_ARGS+"\n").c_str());//writeByteToUART1('0');
      }
+      DRIVE_BUSY=false;
     }else{sendString1("NO_DISK");}
    }else{sendString1("SYNTAX_ERROR");}
   }
@@ -1254,7 +1281,7 @@ else if (ADOS_CMD[0]=='#'){
   else if (ADOS_CMD=="["){
    digitalWrite(FD_HEAD_SELECT,LOW);
    FLOPPY_SIDE=0;
-   sendString1("LOWER_SIDE_SELECTED");
+   sendString1("ECHO LOWER_SIDE_SELECTED\n");
   }
 //--------------------------------------------------
 // [ - SELECT UPPER SIDE                           1
@@ -1262,12 +1289,12 @@ else if (ADOS_CMD[0]=='#'){
   else if (ADOS_CMD=="]"){
    digitalWrite(FD_HEAD_SELECT,HIGH);
    FLOPPY_SIDE=1;
-   sendString1("UPPER_SIDE_SELECTED");
+   sendString1("ECHO UPPER_SIDE_SELECTED\n");
   }
 //--------------------------------------------------
 // < - READ TRACK/SIDE                             1
 //--------------------------------------------------
-  else if (ADOS_CMD=="<"){
+/*  else if (ADOS_CMD=="<"){
    if(!driveEnabled){
     sendString1("DRIVE_NOT_ENABLED");
    } 
@@ -1279,7 +1306,7 @@ else if (ADOS_CMD[0]=='#'){
     smalldelay(20);
     sendString1("ECHO READ_TRACK_OK\n");
    }    
-  }
+  }*/
 //--------------------------------------------------
 // DECODE_TRACK - GRAB&DECODE CURRENT TRACK/SIDE  12
 //--------------------------------------------------
@@ -1363,38 +1390,43 @@ else if (ADOS_CMD[0]=='#'){
   else if (ADOS_CMD == "."){
    if (DISK_READY==true) {
     if (currentTrack!=0){  
-     sendString1("DRIVE_BUSY"); //to prevent the timeout on ESP32
-     smalldelay(20);
+     if (ADOS_ARGS!="LOCAL"){sendString1("DRIVE_BUSY");smalldelay(20);} //to prevent the timeout on ESP32
      if (goToTrack0()==true){
-      sendString1(String("ECHO CURRENT_TRACK:#"+String((currentTrack<10) ? "0" : "")+String(currentTrack)+"\n").c_str());//writeByteToUART1('1');
-      //sendString1(String("ECHO CURRENT_TRACK:#"+String(currentTrack)+'\n').c_str());//writeByteToUART1('1');
-      //writeByteToUART1('1');
+      msgString=String("TRACK_"+String((currentTrack<10) ? "0" : "")+String(currentTrack)+"\n");
      }
-     else{
-      sendString1(String("ECHO ERROR_SETTING_TRACK_TO:#"+ADOS_ARGS+"\n").c_str());//writeByteToUART1('0');
-      //writeByteToUART1('0');
+     else{ msgString=String("ECHO ERROR_SETTING_TRACK_TO:#"+ADOS_ARGS+"\n");
      } 
     }else{
-      sendString1(String("CURRENT_TRACK:#"+String((currentTrack<10) ? "0" : "")+String(currentTrack)).c_str());//writeByteToUART1('1');
-      //sendString1(String("CURRENT_TRACK:#"+String(currentTrack)).c_str());
-      } 
-    }else{sendString1("NO_DISK");}
+      msgString=String("TRACK_"+String((currentTrack<10) ? "0" : "")+String(currentTrack));
+     } 
+   }else{msgString="NO_DISK";}
+   if (ADOS_ARGS="LOCAL"){
+    sendString(msgString.c_str());
+   }
+   else{
+    sendString1(msgString.c_str());
+   }
   }
 //--------------------------------------------------
-// ECHO = ECHO THE ARGS BACK TO ESP32              4
+// ECHO = ECHO THE ARGS BACK TO ESP32 OR LOCAL     4
 //--------------------------------------------------
   else if (ADOS_CMD == "ECHO")  {
-    // echoes the command received from ESP32 back to the ESP32 for testing purposes
+   // echoes the command received from ESP32 back to the ESP32 for testing purposes
    sendString1(ADOS_ARGS.c_str());
   }
 //--------------------------------------------------
 // UNKNOWN COMMAND HANDLER                         ?
 //--------------------------------------------------
   else if (ADOS_CMD!=""){
-   sendString1(String("ECHO ADOS_UNKNOWN_CMD: ["+ADOS_CMD+"] ARGS: ["+ADOS_ARGS+"]\n").c_str());
-   sendString(String("ADOS_UNKNOWN_CMD: ["+ADOS_CMD+"] ARGS: ["+ADOS_ARGS+"]").c_str());
+   if (ADOS_ARGS="LOCAL"){
+    sendString(String("ADOS_UNKNOWN_CMD: ["+ADOS_CMD+"] ARGS: ["+ADOS_ARGS+"]\n").c_str());
+   }
+   else{
+    sendString1(String("ECHO ADOS_UNKNOWN_CMD: ["+ADOS_CMD+"] ARGS: ["+ADOS_ARGS+"]\n").c_str());
+   }
   }
-  ADOS_CMD=""; ADOS_ARGS=""; inString=""; actionESP32=wait;
+  // clean up the strings and action modes
+  ADOS_CMD=""; ADOS_ARGS=""; inputString=""; actionESP32=wait;
  }else if (actionESP32==do_debug){
   //DEBUG SECTION
   actionESP32=wait;
@@ -1410,35 +1442,50 @@ else if (ADOS_CMD[0]=='#'){
   previousMillis = currentMillis;
   POLLING_COUNT++;
   if ( (POLLING_COUNT>=POLLING_INTERVAL) && (driveEnabled==false)) {
+  //sendString(String("DEBUG_MEGA2560_POLLING\n").c_str());
    Polling();
    POLLING_COUNT=0;
   }
   // put ECHO in front if sending the msg to the ESP32
-  statusMessage = "TRACK"+String(currentTrack)+"/";
-  index_pulse_count=0;
-  if (data_pulse_count >> 0) {HAS_DATA_PULSE=true;}else {HAS_DATA_PULSE=false;}
-  data_pulse_count=0;
+  if (currentTrack!=-1){
+  statusMessage = String("TRACK_"+String((currentTrack<10) ? "0" : "")+String(currentTrack)+"/");
+  //"TRACK"+String(currentTrack)+"/";
+  }
+//  index_pulse_count=0;
+//  if (data_pulse_count >> 0) {HAS_DATA_PULSE=true;}else {HAS_DATA_PULSE=false;}
+//  data_pulse_count=0;
   switch (digitalRead(FD_DISK_READY)){
-   case 1:
-    if (IS_DISK_AVAILABLE){
+   case 1:DISK_NOT_REMOVED=digitalRead(FD_DISK_REMOVED);
+    if (DISK_NOT_REMOVED){
+     statusMessage = "DISK_INSERTED\n";
+     //sendString(String("DEBUG_MEGA2560_DISK_INSERTED\n").c_str());
      if (!driveEnabled){
       statusMessage = statusMessage +"DISK_MOTOR_ON#\n";
       ADOS_CMD="+"; ADOS_ARGS="DUMMY";
       actionESP32=do_cmd;
+      break;
      }else {
       statusMessage = statusMessage +"DISK_EJECTED#\n";
       driveEnabled=false; //enable polling again
+      //currentTrack=-1;
+      break;
      }
     }else{
+      //statusMessage = statusMessage + "DISK_REMOVED\n";
+     //sendString(String("DEBUG_MEGA2560_DISK_REMOVED\n").c_str());
      if (currentTrack==-1) {
-      statusMessage = statusMessage +"DRIVE_INIT#\n";
+      //statusMessage = statusMessage +"DRIVE_INIT#\n";
      }else{
-      statusMessage = statusMessage +"NO_DISK#\n";
+      statusMessage = "DISK_EJECTED#\n";
+      driveEnabled=false; //enable polling again
+      currentTrack=-1; //reset currentTrack
+      statusMessage = "NO_DISK#\n";
      }
     }
     break;
    case 0:
     if (driveEnabled){
+     if (currentTrack == -1) goToTrack0();
      DISK_READY=true;
      digitalWrite(FDD_LED,LOW); // the disk is detected so we signal this phase by turning the LED off
      statusMessage = statusMessage + "DISK_READY#\n";
@@ -1458,9 +1505,16 @@ else if (ADOS_CMD[0]=='#'){
  }
 }
 //-----------------------------------------------------------------------------------------------------
-// void loop() - MAIN LOOP ORIGINAL (REMEBER TO RE-POWER THE DRIVE IF ANY PROBLEM SHOULD OCCUR)
+// MAIN LOOP (REMEMBER TO RE-POWER THE DRIVE IF ANY PROBLEM SHOULD OCCUR)
 //-----------------------------------------------------------------------------------------------------
 // void HWserialEvent() - UART0 read routine is called from the main loop
+// this nonblocking routine only detects 3 characters in a row terminated with "\n"
+// switching to default serial routines might help but I tried to maintain an uniform approach so
+// for now we use "shortcuts" as command and reserve numeric pairs 00-79 for tracknumber..
+// some commands need just 1 character just like with drawbridge but since our system interfaces with
+// an Amiga floppy drive (real or converted pc-drive) all the extra stuff became superfluous for now
+// even though with hoodloader the usb hw can reach 2MBAUD the MFM streams go to the ESP32 for handling
+// which is by design.. maybe we could also utilise a FTDI-adapter on serialport 0..
 //-----------------------------------------------------------------------------------------------------
 void HWserialEvent0() {
  char inChar = readByteFromUART0_NonBlocking();
@@ -1471,7 +1525,34 @@ void HWserialEvent0() {
    }
   }
   if (inChar == '\n') {
-   stringComplete = true;
+    if ( isDigit(inputString[0]) && isDigit(inputString[1]) ){//MOVE HEAD TO TRACK 00-79
+     if ( String("89").indexOf(inputString[0])==-1){
+     ADOS_CMD="#"+inputString;}else{ADOS_CMD="ERROR_BAD_TRACK_NUM:"+inputString;}  
+    }
+    else if (inputString=="?"){ //FIRMWARE VERSION
+     ADOS_CMD="?"; 
+    }
+    else if (inputString=="."){ //MOVE HEAD TO TRACK 0
+     ADOS_CMD="."; 
+    }
+    else if (inputString=="LO"){ //DISK_LOWER_SIDE_0
+     ADOS_CMD="["; 
+    }
+    else if (inputString=="UP"){ //DISK_UPPER_SIDE_1
+     ADOS_CMD="]"; 
+    }
+    else if (inputString=="TA"){ //TRACK2ADF
+     ADOS_CMD="="; 
+    }
+    else if (inputString=="DA"){ //DISK2ADF
+     ADOS_CMD="DISK2ADF"; 
+    }
+    else {
+      ADOS_CMD="CMD_UNDEFINED";
+    }
+    ADOS_ARGS="LOCAL";
+    inputString="";
+    actionESP32 = do_cmd; // let the mainloop handle the ADOS command
   }
  }
 }
